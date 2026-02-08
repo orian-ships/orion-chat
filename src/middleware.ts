@@ -4,7 +4,8 @@ const PASSWORD = "87tUE3x6rLVWes7U66NT";
 
 export function middleware(request: NextRequest) {
   // Allow public assets
-  if (request.nextUrl.pathname.startsWith("/widget.js") || request.nextUrl.pathname.startsWith("/_next") || request.nextUrl.pathname.startsWith("/api")) {
+  const path = request.nextUrl.pathname;
+  if (path === "/widget.js" || path.startsWith("/_next") || path.startsWith("/api") || path.startsWith("/favicon")) {
     return NextResponse.next();
   }
 
@@ -33,5 +34,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|widget.js).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|widget\\.js).*)"],
 };
