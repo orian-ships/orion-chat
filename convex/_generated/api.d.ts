@@ -11,6 +11,7 @@
 import type * as http from "../http.js";
 import type * as messages from "../messages.js";
 import type * as sites from "../sites.js";
+import type * as tickets from "../tickets.js";
 
 import type {
   ApiFromModules,
@@ -22,6 +23,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   messages: typeof messages;
   sites: typeof sites;
+  tickets: typeof tickets;
 }>;
 
 /**

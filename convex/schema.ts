@@ -18,12 +18,30 @@ export default defineSchema({
 
   messages: defineTable({
     siteId: v.string(),
-    role: v.string(), // "client" | "agent"
+    role: v.string(),
     content: v.string(),
-    status: v.string(), // "pending" | "in-progress" | "done"
+    status: v.string(),
     metadata: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_siteId", ["siteId"])
     .index("by_siteId_created", ["siteId", "createdAt"]),
+
+  tickets: defineTable({
+    siteId: v.string(),
+    title: v.string(),
+    description: v.string(),
+    type: v.string(),
+    status: v.string(),
+    priority: v.optional(v.string()),
+    pageUrl: v.optional(v.string()),
+    screenshot: v.optional(v.string()),
+    metadata: v.optional(v.string()),
+    clientToken: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_siteId", ["siteId"])
+    .index("by_status", ["status"])
+    .index("by_siteId_status", ["siteId", "status"]),
 });
