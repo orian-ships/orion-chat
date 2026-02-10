@@ -1,9 +1,9 @@
 /**
  * OrionChat V2 — AI Chat + Ticket Widget
- * Embed: <script src="https://orionchat.vercel.app/widget.js" defer></script>
+ * Embed: <script src="https://orion-chat-six.vercel.app/widget.js" defer></script>
  */
 (function () {
-  const APP_BASE = "https://orionchat.vercel.app";
+  const APP_BASE = "https://orion-chat-six.vercel.app";
   const CONVEX_BASE = "https://hardy-mongoose-695.eu-west-1.convex.site";
   const TOKEN_KEY = "oc_token";
   const HISTORY_KEY = "oc_chat_history";
