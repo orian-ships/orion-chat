@@ -490,7 +490,7 @@
       const preview = selection.text ? selection.text.substring(0, 60) + (selection.text.length > 60 ? '…' : '') : '(no text)';
       const msg = `📍 Selected: <${selection.tag}> — "${preview}"\n📐 Location: (${selection.boundingBox.x}, ${selection.boundingBox.y}) ${selection.boundingBox.width}×${selection.boundingBox.height}\n🔗 Selector: ${selection.selector}`;
       const input = document.getElementById('oc-input');
-      if (input) { input.value = msg; input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; input.focus(); }
+      if (input) { input.value = msg; input.style.height = 'auto'; input.style.height = input.scrollHeight + 'px'; input.focus(); }
     }
   }
 
@@ -563,12 +563,12 @@
               <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/><line x1="12" y1="2" x2="12" y2="0"/><line x1="12" y1="24" x2="12" y2="22"/><line x1="2" y1="12" x2="0" y2="12"/><line x1="24" y1="12" x2="22" y2="12"/>
             </svg>
           </div>
-          <textarea id="oc-input" placeholder="Describe your issue or request..." rows="1" style="
+          <textarea id="oc-input" placeholder="Describe your issue or request..." rows="2" style="
             flex:1;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);
             background:#1e293b;color:#fff;font-size:13px;outline:none;transition:border-color 0.2s;
-            resize:none;max-height:120px;overflow-y:auto;font-family:inherit;line-height:1.4;
+            resize:none;overflow:hidden;font-family:inherit;line-height:1.5;
           " onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'"
-          oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'"></textarea>
+          oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
           <button id="oc-send" style="
             padding:10px 16px;border-radius:12px;border:none;
             background:#3b82f6;color:#fff;font-weight:600;font-size:13px;
