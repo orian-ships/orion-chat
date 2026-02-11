@@ -40,6 +40,34 @@ export const create = mutation({
   },
 });
 
+export const update = mutation({
+  args: {
+    siteId: v.string(),
+    name: v.optional(v.string()),
+    domain: v.optional(v.string()),
+    repo: v.optional(v.string()),
+    clientName: v.optional(v.string()),
+    clientEmail: v.optional(v.string()),
+    active: v.optional(v.boolean()),
+    systemPrompt: v.optional(v.string()),
+  },
+  handler: async (ctx, { siteId, ...fields }) => {
+    const site = await ctx.db
+      .query("sites")
+      .withIndex("by_siteId", (q) => q.eq("siteId", siteId))
+      .first();
+    if (!site) throw new Error("Site not found");
+    const updates: Record<string, any> = {};
+    for (const [k, v] of Object.entries(fields)) {
+      if (v !== undefined) updates[k] = v;
+    }
+    if (Object.keys(updates).length > 0) {
+      await ctx.db.patch(site._id, updates);
+    }
+    return { ok: true };
+  },
+});
+
 export const list = query({
   args: {},
   handler: async (ctx) => {

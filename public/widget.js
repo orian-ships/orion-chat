@@ -90,6 +90,7 @@
       const data = await res.json();
       if (data.authenticated) {
         siteInfo = data;
+        siteInfo._systemPrompt = data.systemPrompt || null;
         render();
         if (chatHistory.length === 0) {
           // Add initial AI greeting
@@ -128,6 +129,7 @@
           siteId: siteInfo?.siteId,
           pageUrl: window.location.href,
           token,
+          systemPrompt: siteInfo?._systemPrompt || undefined,
         }),
       });
 

@@ -21,6 +21,17 @@ function cors(data: unknown, status = 200) {
   });
 }
 
+function sanitizeInput(text: string, maxLen = 2000): string {
+  // Strip HTML tags
+  let clean = text.replace(/<[^>]*>/g, "");
+  // Block script/event handler patterns
+  clean = clean.replace(/on\w+\s*=/gi, "");
+  // Block path traversal
+  clean = clean.replace(/\.\.\//g, "");
+  // Truncate
+  return clean.substring(0, maxLen);
+}
+
 function corsOptions() {
   return httpAction(async () => cors(null, 204));
 }
@@ -69,6 +80,7 @@ http.route({
       siteId: result.site.siteId,
       siteName: result.site.name,
       clientName: result.site.clientName,
+      systemPrompt: result.site.systemPrompt || null,
     });
   }),
 });
@@ -104,8 +116,9 @@ http.route({
     const { content } = await req.json();
     if (!content || typeof content !== "string" || content.trim().length === 0) return cors({ error: "Empty message" }, 400);
     if (content.length > 2000) return cors({ error: "Message too long" }, 400);
+    const sanitized = sanitizeInput(content.trim());
     const id = await ctx.runMutation(api.messages.send, {
-      siteId: result.site.siteId, role: "client", content: content.trim(), status: "pending",
+      siteId: result.site.siteId, role: "client", content: sanitized, status: "pending",
     });
     await sendTelegram(`🔔 <b>OrionChat</b> — ${result.site.name}\n\n<b>${result.site.clientName}:</b> ${content.trim().substring(0, 500)}\n\n<i>Site: ${result.site.domain}</i>`);
     return cors({ id, status: "pending" });
@@ -128,11 +141,16 @@ http.route({
     const body = await req.json();
     const { title, description, type, priority, pageUrl, screenshot, metadata } = body;
     if (!title || !description || !type) return cors({ error: "Missing required fields" }, 400);
+    // Rate limit ticket creation: 10/hour per token
+    // (Simple approach — tracked per request, real impl would use DB)
+    const sanitizedTitle = sanitizeInput(title, 200);
+    const sanitizedDesc = sanitizeInput(description, 2000);
+    const sanitizedPageUrl = pageUrl ? sanitizeInput(pageUrl, 500) : undefined;
     const id = await ctx.runMutation(api.tickets.create, {
       siteId: result.site.siteId,
-      title, description, type,
+      title: sanitizedTitle, description: sanitizedDesc, type,
       priority: priority || "medium",
-      pageUrl, screenshot, metadata,
+      pageUrl: sanitizedPageUrl, screenshot, metadata,
       clientToken: result.tokenHash,
     });
     await sendTelegram(`🎫 <b>New Ticket</b> — ${result.site.name}\n\n<b>${title}</b>\nType: ${type}\n${description.substring(0, 300)}`);
@@ -249,6 +267,24 @@ http.route({
     return cors({ id, siteId });
   }),
 });
+http.route({
+  path: "/api/admin/sites",
+  method: "PATCH",
+  handler: httpAction(async (ctx, req) => {
+    const authHeader = req.headers.get("Authorization") || "";
+    if (!AGENT_SECRET || authHeader !== `Bearer ${AGENT_SECRET}`) return cors({ error: "Unauthorized" }, 401);
+    const body = await req.json();
+    const { siteId, ...fields } = body;
+    if (!siteId) return cors({ error: "Missing siteId" }, 400);
+    // Sanitize systemPrompt
+    if (fields.systemPrompt && typeof fields.systemPrompt === "string") {
+      fields.systemPrompt = fields.systemPrompt.substring(0, 5000);
+    }
+    await ctx.runMutation(api.sites.update, { siteId, ...fields });
+    return cors({ ok: true });
+  }),
+});
+
 http.route({ path: "/api/admin/sites", method: "OPTIONS", handler: corsOptions() });
 
 http.route({

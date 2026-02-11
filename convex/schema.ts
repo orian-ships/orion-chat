@@ -11,6 +11,7 @@ export default defineSchema({
     clientName: v.string(),
     clientEmail: v.optional(v.string()),
     active: v.boolean(),
+    systemPrompt: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_siteId", ["siteId"])
