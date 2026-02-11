@@ -28,6 +28,8 @@
   let tickets = [];
   let isTyping = false;
   let pendingImages = []; // base64 data URLs queued for next message
+  let pendingSelection = null; // element picker selection metadata
+  let pickerMode = false;
 
   // Load chat history from localStorage
   try {
@@ -207,6 +209,11 @@
       };
       // Attach images only for the current send
       if (msgImages.length > 0) payload.images = msgImages;
+      // Attach element selection metadata
+      if (pendingSelection) {
+        payload.elementSelection = pendingSelection;
+        pendingSelection = null;
+      }
 
       const res = await fetch(`${APP_BASE}/api/chat`, {
         method: "POST",
@@ -342,6 +349,151 @@
     scrollToBottom();
   }
 
+  // ── Element Picker ──────────────────────────────────────────────────
+  function getCSSSelector(el) {
+    if (el.id) return '#' + CSS.escape(el.id);
+    const parts = [];
+    while (el && el !== document.body && el !== document.documentElement) {
+      let selector = el.tagName.toLowerCase();
+      if (el.className && typeof el.className === 'string') {
+        const classes = el.className.trim().split(/\s+/).filter(c => !c.startsWith('oc-')).slice(0, 2);
+        if (classes.length) selector += '.' + classes.join('.');
+      }
+      parts.unshift(selector);
+      el = el.parentElement;
+    }
+    return parts.join(' > ');
+  }
+
+  function isWidgetElement(el) {
+    while (el) {
+      if (el.id === 'oc-panel' || el.id === 'oc-btn' || el.id === 'oc-picker-banner' || el.id === 'oc-picker-highlight' || el.id === 'oc-picker-tooltip') return true;
+      el = el.parentElement;
+    }
+    return false;
+  }
+
+  function enterPickerMode() {
+    pickerMode = true;
+    // Collapse chat panel
+    const panel = document.getElementById('oc-panel');
+    if (panel) panel.style.display = 'none';
+    isOpen = false;
+
+    // Banner
+    const banner = document.createElement('div');
+    banner.id = 'oc-picker-banner';
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;padding:12px 20px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;font-weight:600;text-align:center;display:flex;align-items:center;justify-content:center;gap:12px;box-shadow:0 4px 20px rgba(59,130,246,0.4);';
+    banner.innerHTML = '<span style="font-size:18px;">🎯</span> Click on any element to select it <span style="font-size:12px;opacity:0.8;background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:4px;">ESC to cancel</span>';
+    document.body.appendChild(banner);
+
+    // Highlight overlay
+    const highlight = document.createElement('div');
+    highlight.id = 'oc-picker-highlight';
+    highlight.style.cssText = 'position:fixed;pointer-events:none;z-index:999998;border:2px dashed #3b82f6;background:rgba(59,130,246,0.08);border-radius:4px;transition:all 0.1s ease;display:none;';
+    document.body.appendChild(highlight);
+
+    // Tooltip
+    const tooltip = document.createElement('div');
+    tooltip.id = 'oc-picker-tooltip';
+    tooltip.style.cssText = 'position:fixed;pointer-events:none;z-index:999999;background:#1e293b;color:#fff;font-family:monospace;font-size:11px;padding:3px 8px;border-radius:6px;display:none;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
+    document.body.appendChild(tooltip);
+
+    // Handlers
+    document.addEventListener('mousemove', pickerMouseMove, true);
+    document.addEventListener('click', pickerClick, true);
+    document.addEventListener('keydown', pickerKeydown, true);
+    // Mobile: single tap to select
+    document.addEventListener('touchend', pickerTouch, true);
+  }
+
+  function pickerMouseMove(e) {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const highlight = document.getElementById('oc-picker-highlight');
+    const tooltip = document.getElementById('oc-picker-tooltip');
+    if (!el || !highlight || !tooltip || isWidgetElement(el)) {
+      if (highlight) highlight.style.display = 'none';
+      if (tooltip) tooltip.style.display = 'none';
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    highlight.style.display = 'block';
+    highlight.style.top = rect.top + 'px';
+    highlight.style.left = rect.left + 'px';
+    highlight.style.width = rect.width + 'px';
+    highlight.style.height = rect.height + 'px';
+    tooltip.style.display = 'block';
+    tooltip.style.top = (e.clientY + 16) + 'px';
+    tooltip.style.left = (e.clientX + 12) + 'px';
+    tooltip.textContent = '<' + el.tagName.toLowerCase() + '>';
+  }
+
+  function pickerClick(e) {
+    if (!pickerMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || isWidgetElement(el)) return;
+    captureElement(el);
+  }
+
+  function pickerTouch(e) {
+    if (!pickerMode || !e.changedTouches || !e.changedTouches[0]) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const touch = e.changedTouches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (!el || isWidgetElement(el)) return;
+    captureElement(el);
+  }
+
+  function pickerKeydown(e) {
+    if (e.key === 'Escape') { exitPickerMode(null); }
+  }
+
+  function captureElement(el) {
+    const rect = el.getBoundingClientRect();
+    const textContent = (el.textContent || '').trim().substring(0, 200);
+    const tag = el.tagName.toLowerCase();
+    const selector = getCSSSelector(el);
+    const outerHTML = el.outerHTML.substring(0, 500);
+
+    pendingSelection = {
+      tag,
+      text: textContent,
+      selector,
+      boundingBox: { x: Math.round(rect.x + window.scrollX), y: Math.round(rect.y + window.scrollY), width: Math.round(rect.width), height: Math.round(rect.height) },
+      outerHTML,
+      pageUrl: window.location.href,
+    };
+
+    exitPickerMode(pendingSelection);
+  }
+
+  function exitPickerMode(selection) {
+    pickerMode = false;
+    document.removeEventListener('mousemove', pickerMouseMove, true);
+    document.removeEventListener('click', pickerClick, true);
+    document.removeEventListener('keydown', pickerKeydown, true);
+    document.removeEventListener('touchend', pickerTouch, true);
+
+    ['oc-picker-banner', 'oc-picker-highlight', 'oc-picker-tooltip'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.remove();
+    });
+
+    // Re-open chat
+    const panel = document.getElementById('oc-panel');
+    if (panel) { panel.style.display = 'flex'; isOpen = true; }
+
+    if (selection) {
+      const preview = selection.text ? selection.text.substring(0, 60) + (selection.text.length > 60 ? '…' : '') : '(no text)';
+      const msg = `📍 Selected: <${selection.tag}> — "${preview}"\n📐 Location: (${selection.boundingBox.x}, ${selection.boundingBox.y}) ${selection.boundingBox.width}×${selection.boundingBox.height}\n🔗 Selector: ${selection.selector}`;
+      const input = document.getElementById('oc-input');
+      if (input) { input.value = msg; input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; input.focus(); }
+    }
+  }
+
   function render() {
     // Inject styles
     const style = document.createElement("style");
@@ -406,6 +558,11 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
             </svg>
           </div>
+          <div id="oc-picker-btn" style="cursor:pointer;color:#64748b;padding:6px;border-radius:8px;transition:color 0.2s;flex-shrink:0;" title="Select page element">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/><line x1="12" y1="2" x2="12" y2="0"/><line x1="12" y1="24" x2="12" y2="22"/><line x1="2" y1="12" x2="0" y2="12"/><line x1="24" y1="12" x2="22" y2="12"/>
+            </svg>
+          </div>
           <textarea id="oc-input" placeholder="Describe your issue or request..." rows="1" style="
             flex:1;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);
             background:#1e293b;color:#fff;font-size:13px;outline:none;transition:border-color 0.2s;
@@ -463,6 +620,9 @@
     const attachBtn = document.getElementById("oc-attach-btn");
     const fileInput = document.getElementById("oc-file-input");
     attachBtn.addEventListener("click", () => fileInput.click());
+
+    // Element picker button
+    document.getElementById("oc-picker-btn").addEventListener("click", () => enterPickerMode());
     fileInput.addEventListener("change", (e) => {
       Array.from(e.target.files).forEach(handleImageFile);
       fileInput.value = "";
