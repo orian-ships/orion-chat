@@ -45,13 +45,35 @@ async function hashToken(token: string): Promise<string> {
     .join("");
 }
 
-async function sendTelegram(text: string) {
+async function sendTelegram(text: string, reply_markup?: any) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
   try {
+    const body: any = { chat_id: TELEGRAM_CHAT_ID, text, parse_mode: "HTML" };
+    if (reply_markup) body.reply_markup = reply_markup;
     await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: "HTML" }),
+      body: JSON.stringify(body),
+    });
+  } catch { /* silent */ }
+}
+
+const RESEND_API_KEY = "re_HtofsyPF_PpotNkGX4uinBo9pffqaoe7w";
+
+async function sendEmail(to: string, subject: string, html: string) {
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+      },
+      body: JSON.stringify({
+        from: "Orián <noreply@orian.dev>",
+        to: [to],
+        subject,
+        html,
+      }),
     });
   } catch { /* silent */ }
 }
@@ -380,7 +402,17 @@ http.route({
         briefSummary = `📋 <b>${brief.project_name || "Untitled"}</b>\nType: ${brief.project_type || "N/A"}\n${(brief.description || "").substring(0, 300)}`;
       }
     } catch { /* */ }
-    await sendTelegram(`🚀 <b>New Project Brief Submitted</b>\n\nFrom: ${email}\n\n${briefSummary}`);
+    await sendTelegram(
+      `🚀 <b>New Project Brief Submitted</b>\n\nFrom: ${email}\nSession: <code>${sessionId}</code>\n\n${briefSummary}`,
+      {
+        inline_keyboard: [
+          [
+            { text: "✅ Approve", callback_data: `approve:${sessionId}` },
+            { text: "❌ Reject", callback_data: `reject:${sessionId}` },
+          ],
+        ],
+      }
+    );
 
     return cors({ ok: true });
   }),
@@ -430,5 +462,166 @@ http.route({
   }),
 });
 http.route({ path: "/api/scope/auth/verify", method: "OPTIONS", handler: corsOptions() });
+
+// ============================================================
+// SCOPING — Approval / Rejection / Delivery
+// ============================================================
+
+http.route({
+  path: "/api/scope/approve",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const authHeader = req.headers.get("Authorization") || "";
+    if (!AGENT_SECRET || authHeader !== `Bearer ${AGENT_SECRET}`) return cors({ error: "Unauthorized" }, 401);
+
+    const { sessionId, action, reason } = await req.json();
+    if (!sessionId || !action) return cors({ error: "Missing sessionId or action" }, 400);
+
+    const session = await ctx.runQuery(api.scopingSessions.getBySessionId, { sessionId });
+    if (!session) return cors({ error: "Session not found" }, 404);
+
+    if (action === "approve") {
+      // Create ticket
+      let briefTitle = "Untitled Project";
+      let briefDesc = "No brief data";
+      try {
+        if (session.briefData) {
+          const brief = JSON.parse(session.briefData);
+          briefTitle = brief.project_name || "Untitled Project";
+          briefDesc = JSON.stringify(brief, null, 2);
+        }
+      } catch { /* */ }
+
+      const ticketId = await ctx.runMutation(api.tickets.create, {
+        siteId: "orion-scoping",
+        title: briefTitle,
+        description: briefDesc,
+        type: "project",
+        priority: "high",
+        clientToken: "scoping-system",
+      });
+
+      await ctx.runMutation(api.scopingSessions.approve, { sessionId, ticketId });
+      await sendTelegram(`✅ <b>Brief Approved</b>\n\n${briefTitle}\nTicket created.`);
+
+      if (session.email) {
+        await sendEmail(
+          session.email,
+          "Your project has been approved! 🎉",
+          `<h2>Great news!</h2><p>Your project <strong>${briefTitle}</strong> has been approved. We'll start working on it soon and keep you updated.</p><p>— The Orián Team</p>`
+        );
+      }
+
+      return cors({ ok: true, ticketId: String(ticketId) });
+    } else if (action === "reject") {
+      await ctx.runMutation(api.scopingSessions.reject, { sessionId, reason });
+      await sendTelegram(`❌ <b>Brief Rejected</b>\n\nSession: ${sessionId}\nReason: ${reason || "No reason given"}`);
+
+      if (session.email) {
+        await sendEmail(
+          session.email,
+          "Update on your project brief",
+          `<h2>Project Brief Update</h2><p>After reviewing your brief, we've decided not to proceed at this time.</p>${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}<p>Feel free to submit a new brief anytime.</p><p>— The Orián Team</p>`
+        );
+      }
+
+      return cors({ ok: true });
+    }
+
+    return cors({ error: "Invalid action" }, 400);
+  }),
+});
+http.route({ path: "/api/scope/approve", method: "OPTIONS", handler: corsOptions() });
+
+http.route({
+  path: "/api/scope/deliver",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const authHeader = req.headers.get("Authorization") || "";
+    if (!AGENT_SECRET || authHeader !== `Bearer ${AGENT_SECRET}`) return cors({ error: "Unauthorized" }, 401);
+
+    const { sessionId, repoUrl, deployUrl } = await req.json();
+    if (!sessionId || !repoUrl || !deployUrl) return cors({ error: "Missing required fields" }, 400);
+
+    const session = await ctx.runQuery(api.scopingSessions.getBySessionId, { sessionId });
+    if (!session) return cors({ error: "Session not found" }, 404);
+
+    // Auto-provision chat widget site
+    const widgetSiteId = `scope-${sessionId.substring(0, 8)}`;
+    const widgetToken = crypto.randomUUID();
+    const tokenHash = await hashToken(widgetToken);
+
+    let projectName = "Delivered Project";
+    try {
+      if (session.briefData) {
+        const brief = JSON.parse(session.briefData);
+        projectName = brief.project_name || projectName;
+      }
+    } catch { /* */ }
+
+    await ctx.runMutation(api.sites.create, {
+      siteId: widgetSiteId,
+      name: projectName,
+      domain: new URL(deployUrl).hostname,
+      repo: repoUrl,
+      tokenHash,
+      clientName: session.email || "Client",
+      clientEmail: session.email,
+    });
+
+    await ctx.runMutation(api.scopingSessions.deliver, {
+      sessionId,
+      repoUrl,
+      deployUrl,
+      widgetSiteId,
+    });
+
+    await sendTelegram(`🚀 <b>Project Delivered!</b>\n\n${projectName}\nDeploy: ${deployUrl}\nWidget: ${widgetSiteId}`);
+
+    if (session.email) {
+      await sendEmail(
+        session.email,
+        "Your project is live! 🚀",
+        `<h2>Your project is live!</h2>
+        <p><strong>${projectName}</strong> has been deployed and is ready for you.</p>
+        <p><a href="${deployUrl}" style="display:inline-block;padding:12px 24px;background:#10b981;color:white;text-decoration:none;border-radius:8px;">View Your Project</a></p>
+        <p>We've embedded a chat widget on your site for easy feedback and support. Just click the chat icon in the bottom-right corner.</p>
+        <p>— The Orián Team</p>`
+      );
+    }
+
+    return cors({ ok: true, widgetSiteId, widgetToken });
+  }),
+});
+http.route({ path: "/api/scope/deliver", method: "OPTIONS", handler: corsOptions() });
+
+// Scoping dashboard — get sessions by email
+http.route({
+  path: "/api/scope/dashboard",
+  method: "GET",
+  handler: httpAction(async (ctx, req) => {
+    const url = new URL(req.url);
+    const email = url.searchParams.get("email") || "";
+    const userId = url.searchParams.get("userId") || "";
+    if (!email && !userId) return cors({ error: "Missing email or userId" }, 400);
+
+    let sessions;
+    if (userId) {
+      sessions = await ctx.runQuery(api.scopingSessions.getByUserId, { userId });
+    } else {
+      // Fall back to filtering by status and checking email
+      const all = await ctx.runQuery(api.scopingSessions.getByStatus, { status: "submitted" });
+      sessions = all.filter((s: any) => s.email === email);
+      // Also get other statuses
+      for (const st of ["approved", "rejected", "building", "review", "live"]) {
+        const more = await ctx.runQuery(api.scopingSessions.getByStatus, { status: st });
+        sessions.push(...more.filter((s: any) => s.email === email));
+      }
+    }
+
+    return cors(sessions);
+  }),
+});
+http.route({ path: "/api/scope/dashboard", method: "OPTIONS", handler: corsOptions() });
 
 export default http;

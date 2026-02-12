@@ -77,3 +77,82 @@ export const getByStatus = query({
       .collect();
   },
 });
+
+export const approve = mutation({
+  args: { sessionId: v.string(), ticketId: v.optional(v.id("tickets")) },
+  handler: async (ctx, { sessionId, ticketId }) => {
+    const session = await ctx.db
+      .query("scopingSessions")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
+      .first();
+    if (!session) return null;
+    const updates: any = { status: "approved", updatedAt: Date.now() };
+    if (ticketId) updates.ticketId = ticketId;
+    await ctx.db.patch(session._id, updates);
+    return session._id;
+  },
+});
+
+export const reject = mutation({
+  args: { sessionId: v.string(), reason: v.optional(v.string()) },
+  handler: async (ctx, { sessionId, reason }) => {
+    const session = await ctx.db
+      .query("scopingSessions")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
+      .first();
+    if (!session) return null;
+    await ctx.db.patch(session._id, {
+      status: "rejected",
+      rejectionReason: reason,
+      updatedAt: Date.now(),
+    });
+    return session._id;
+  },
+});
+
+export const deliver = mutation({
+  args: {
+    sessionId: v.string(),
+    repoUrl: v.string(),
+    deployUrl: v.string(),
+    widgetSiteId: v.string(),
+  },
+  handler: async (ctx, { sessionId, repoUrl, deployUrl, widgetSiteId }) => {
+    const session = await ctx.db
+      .query("scopingSessions")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
+      .first();
+    if (!session) return null;
+    await ctx.db.patch(session._id, {
+      status: "live",
+      repoUrl,
+      deployUrl,
+      widgetSiteId,
+      updatedAt: Date.now(),
+    });
+    return session._id;
+  },
+});
+
+export const updateStatus = mutation({
+  args: { sessionId: v.string(), status: v.string() },
+  handler: async (ctx, { sessionId, status }) => {
+    const session = await ctx.db
+      .query("scopingSessions")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
+      .first();
+    if (!session) return null;
+    await ctx.db.patch(session._id, { status, updatedAt: Date.now() });
+    return session._id;
+  },
+});
+
+export const getByUserId = query({
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => {
+    return await ctx.db
+      .query("scopingSessions")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+  },
+});

@@ -33,8 +33,13 @@ export default defineSchema({
     sessionId: v.string(),
     userId: v.optional(v.string()),
     email: v.optional(v.string()),
-    status: v.string(), // "active" | "brief_ready" | "submitted" | "archived"
+    status: v.string(), // "active" | "brief_ready" | "submitted" | "approved" | "rejected" | "building" | "review" | "live"
     briefData: v.optional(v.string()), // JSON string
+    repoUrl: v.optional(v.string()),
+    deployUrl: v.optional(v.string()),
+    widgetSiteId: v.optional(v.string()),
+    rejectionReason: v.optional(v.string()),
+    ticketId: v.optional(v.id("tickets")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
