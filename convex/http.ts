@@ -576,7 +576,7 @@ http.route({
       widgetSiteId,
     });
 
-    await sendTelegram(`🚀 <b>Project Delivered!</b>\n\n${projectName}\nDeploy: ${deployUrl}\nWidget: ${widgetSiteId}`);
+    await sendTelegram(`🚀 <b>Project Delivered!</b>\n\n<b>${projectName}</b>\nDeploy: ${deployUrl}\nRepo: ${repoUrl}\n\n<b>Widget Setup:</b>\nSite ID: <code>${widgetSiteId}</code>\nToken: <code>${widgetToken}</code>\n\nEmbed:\n<code>&lt;script src="https://orion-chat-six.vercel.app/widget.js" data-site-id="${widgetSiteId}" data-token="${widgetToken}" data-accent="#10b981"&gt;&lt;/script&gt;</code>`);
 
     if (session.email) {
       await sendEmail(
