@@ -484,20 +484,28 @@ http.route({
       // Create ticket
       let briefTitle = "Untitled Project";
       let briefDesc = "No brief data";
+      let projectSiteId = "orion-scoping";
       try {
         if (session.briefData) {
           const brief = JSON.parse(session.briefData);
           briefTitle = brief.project_name || "Untitled Project";
           briefDesc = JSON.stringify(brief, null, 2);
+          // Generate a clean siteId from project name
+          projectSiteId = (brief.project_name || "project")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "")
+            .substring(0, 30);
         }
       } catch { /* */ }
 
       const ticketId = await ctx.runMutation(api.tickets.create, {
-        siteId: "orion-scoping",
+        siteId: projectSiteId,
         title: briefTitle,
         description: briefDesc,
         type: "project",
         priority: "high",
+        pageUrl: session.email ? `Client: ${session.email}` : undefined,
         clientToken: "scoping-system",
       });
 
